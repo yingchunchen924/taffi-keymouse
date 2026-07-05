@@ -14,11 +14,20 @@ class Macro:
     description: str
     tags: str
     favorite: bool
+    folder_id: int
     created_at: str
     updated_at: str
     screen_width: int
     screen_height: int
     event_count: int
+
+
+@dataclass
+class MacroFolder:
+    id: int
+    name: str
+    created_at: str
+    updated_at: str
 
 
 @dataclass
