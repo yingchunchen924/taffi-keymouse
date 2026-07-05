@@ -23,6 +23,12 @@ logs/
 refs/
 scripts/
 data/
+release/
+Microsoft/
+_test_*/
+_shortcut_test_*/
+_exe_test_*/
+_release31_test_*/
 
 .DS_Store
 Thumbs.db

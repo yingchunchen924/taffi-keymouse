@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
-from . import APP_NAME, APP_VERSION
+from . import APP_DISPLAY_NAME, APP_VERSION
 from .database import Database
 from .models import Macro, ReferenceImage
 from .paths import EXPORT_DIR, REF_DIR, SCRIPT_DIR
@@ -19,14 +19,14 @@ class MacroRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def create_macro(self, name: str, description: str = "", tags: str = "") -> Macro:
+    def create_macro(self, name: str, description: str = "", tags: str = "", folder_id: int = 1) -> Macro:
         base = safe_name(name)
         final = base
         index = 1
         while self.db.get_macro_by_name(final):
             index += 1
             final = f"{base}_{index}"
-        macro_id = self.db.create_macro(final, description, tags)
+        macro_id = self.db.create_macro(final, description, tags, folder_id)
         macro = self.db.get_macro(macro_id)
         assert macro is not None
         return macro
@@ -35,7 +35,7 @@ class MacroRepository:
         macro = self.db.get_macro(macro_id)
         if not macro:
             return None
-        new_macro = self.create_macro(f"{macro.name}_副本", macro.description, macro.tags)
+        new_macro = self.create_macro(f"{macro.name}_副本", macro.description, macro.tags, macro.folder_id)
         events = self.db.load_events(macro_id)
         self.db.save_events(new_macro.id, events)
         old_refs = self.db.list_references(macro_id)
@@ -114,7 +114,7 @@ class MacroRepository:
         refs = self.db.list_references(macro_id)
         payload = {
             "schema": "taffi-suite-v2",
-            "app": APP_NAME,
+            "app": APP_DISPLAY_NAME,
             "version": APP_VERSION,
             "macro": {
                 "name": macro.name,

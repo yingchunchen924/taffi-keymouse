@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Work = Join-Path $Root "_build"
 $Dist = Join-Path $Work "dist"
-$OutName = "塔菲键鼠3.0.exe"
+$OutName = "塔菲键鼠3.1.exe"
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 python -m PyInstaller `
   --noconfirm `

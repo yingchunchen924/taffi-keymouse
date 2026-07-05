@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from . import APP_VERSION, DB_VERSION
-from .models import Macro, ReferenceImage, RunRecord
+from .models import Macro, MacroFolder, ReferenceImage, RunRecord
 from .paths import DB_PATH, ensure_dirs
 from .utils import now_text, screen_size, safe_name
 
@@ -44,20 +44,42 @@ class Database:
             )
             self.conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS macro_folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS macros (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT NOT NULL DEFAULT '',
                     tags TEXT NOT NULL DEFAULT '',
                     favorite INTEGER NOT NULL DEFAULT 0,
+                    folder_id INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     screen_width INTEGER NOT NULL DEFAULT 0,
                     screen_height INTEGER NOT NULL DEFAULT 0,
-                    event_count INTEGER NOT NULL DEFAULT 0
+                    event_count INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY(folder_id) REFERENCES macro_folders(id) ON DELETE SET DEFAULT
                 )
                 """
             )
+            self._ensure_macro_folder_columns()
+            ts = now_text()
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO macro_folders(id, name, created_at, updated_at)
+                VALUES(1, '未分类', ?, ?)
+                """,
+                (ts, ts),
+            )
+            self.conn.execute("UPDATE macros SET folder_id=1 WHERE folder_id IS NULL OR folder_id=0")
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -122,17 +144,73 @@ class Database:
                 (key, json.dumps(value, ensure_ascii=False)),
             )
 
-    def create_macro(self, name: str, description: str = "", tags: str = "") -> int:
+    def _ensure_macro_folder_columns(self) -> None:
+        macro_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(macros)").fetchall()}
+        if "folder_id" not in macro_cols:
+            self.conn.execute("ALTER TABLE macros ADD COLUMN folder_id INTEGER NOT NULL DEFAULT 1")
+
+    def create_folder(self, name: str) -> int:
         name = safe_name(name)
-        w, h = screen_size()
         ts = now_text()
         with self.conn:
             cur = self.conn.execute(
                 """
-                INSERT INTO macros(name, description, tags, created_at, updated_at, screen_width, screen_height)
-                VALUES(?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO macro_folders(name, created_at, updated_at)
+                VALUES(?, ?, ?)
                 """,
-                (name, description, tags, ts, ts, w, h),
+                (name, ts, ts),
+            )
+            return int(cur.lastrowid)
+
+    def update_folder(self, folder_id: int, name: str) -> None:
+        if folder_id == 1:
+            return
+        with self.conn:
+            self.conn.execute(
+                "UPDATE macro_folders SET name=?, updated_at=? WHERE id=?",
+                (safe_name(name), now_text(), folder_id),
+            )
+
+    def delete_folder(self, folder_id: int) -> None:
+        if folder_id == 1:
+            return
+        with self.conn:
+            self.conn.execute("UPDATE macros SET folder_id=1 WHERE folder_id=?", (folder_id,))
+            self.conn.execute("DELETE FROM macro_folders WHERE id=?", (folder_id,))
+
+    def list_folders(self) -> List[MacroFolder]:
+        rows = self.conn.execute(
+            "SELECT * FROM macro_folders ORDER BY CASE WHEN id=1 THEN 0 ELSE 1 END, name COLLATE NOCASE"
+        ).fetchall()
+        return [self._folder_from_row(row) for row in rows]
+
+    def get_folder(self, folder_id: int) -> Optional[MacroFolder]:
+        row = self.conn.execute("SELECT * FROM macro_folders WHERE id=?", (folder_id,)).fetchone()
+        return self._folder_from_row(row) if row else None
+
+    def get_folder_by_name(self, name: str) -> Optional[MacroFolder]:
+        row = self.conn.execute("SELECT * FROM macro_folders WHERE name=?", (safe_name(name),)).fetchone()
+        return self._folder_from_row(row) if row else None
+
+    def move_macro_to_folder(self, macro_id: int, folder_id: int) -> None:
+        if not self.get_folder(folder_id):
+            folder_id = 1
+        with self.conn:
+            self.conn.execute("UPDATE macros SET folder_id=?, updated_at=? WHERE id=?", (folder_id, now_text(), macro_id))
+
+    def create_macro(self, name: str, description: str = "", tags: str = "", folder_id: int = 1) -> int:
+        name = safe_name(name)
+        w, h = screen_size()
+        ts = now_text()
+        if not self.get_folder(folder_id):
+            folder_id = 1
+        with self.conn:
+            cur = self.conn.execute(
+                """
+                INSERT INTO macros(name, description, tags, favorite, folder_id, created_at, updated_at, screen_width, screen_height)
+                VALUES(?, ?, ?, 0, ?, ?, ?, ?, ?)
+                """,
+                (name, description, tags, folder_id, ts, ts, w, h),
             )
             return int(cur.lastrowid)
 
@@ -158,12 +236,30 @@ class Database:
                 """
                 SELECT * FROM macros
                 WHERE name LIKE ? OR description LIKE ? OR tags LIKE ?
-                ORDER BY favorite DESC, updated_at DESC
+                ORDER BY folder_id ASC, favorite DESC, updated_at DESC
                 """,
                 (like, like, like),
             ).fetchall()
         else:
-            rows = self.conn.execute("SELECT * FROM macros ORDER BY favorite DESC, updated_at DESC").fetchall()
+            rows = self.conn.execute("SELECT * FROM macros ORDER BY folder_id ASC, favorite DESC, updated_at DESC").fetchall()
+        return [self._macro_from_row(row) for row in rows]
+
+    def list_macros_by_folder(self, folder_id: int, query: str = "") -> List[Macro]:
+        if query:
+            like = f"%{query}%"
+            rows = self.conn.execute(
+                """
+                SELECT * FROM macros
+                WHERE folder_id=? AND (name LIKE ? OR description LIKE ? OR tags LIKE ?)
+                ORDER BY favorite DESC, updated_at DESC
+                """,
+                (folder_id, like, like, like),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM macros WHERE folder_id=? ORDER BY favorite DESC, updated_at DESC",
+                (folder_id,),
+            ).fetchall()
         return [self._macro_from_row(row) for row in rows]
 
     def get_macro(self, macro_id: int) -> Optional[Macro]:
@@ -271,11 +367,20 @@ class Database:
             description=row["description"],
             tags=row["tags"],
             favorite=bool(row["favorite"]),
+            folder_id=int(row["folder_id"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             screen_width=int(row["screen_width"]),
             screen_height=int(row["screen_height"]),
             event_count=int(row["event_count"]),
+        )
+
+    def _folder_from_row(self, row: sqlite3.Row) -> MacroFolder:
+        return MacroFolder(
+            id=int(row["id"]),
+            name=row["name"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     def _ref_from_row(self, row: sqlite3.Row) -> ReferenceImage:

@@ -12,9 +12,9 @@ from PIL import Image, ImageTk
 from pynput import keyboard as pynput_keyboard
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import APP_NAME, APP_VERSION
+from . import APP_DISPLAY_NAME, APP_VERSION
 from .database import Database
-from .models import Macro, ReferenceImage
+from .models import Macro, MacroFolder, ReferenceImage
 from .paths import DB_PATH, EXPORT_DIR, ICON_ICO, ICON_PNG, LOG_DIR, ensure_dirs
 from .player import Player
 from .recorder import Recorder
@@ -48,6 +48,7 @@ class Taffi3App:
         self.state_started_at: Optional[float] = None
         self.pulse_on = False
         self.pending_refresh = False
+        self.drag_origin: Optional[tuple[int, int, int, int]] = None
 
         self.colors = {
             "bg": "#f3f6fb",
@@ -69,7 +70,7 @@ class Taffi3App:
         }
 
         self.root = tk.Tk()
-        self.root.title(f"{APP_NAME} v{APP_VERSION}")
+        self.root.title(f"{APP_DISPLAY_NAME} v{APP_VERSION}")
         self.root.configure(bg=self.colors["bg"])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.apply_startup_geometry()
@@ -84,7 +85,7 @@ class Taffi3App:
         self.main_hint_var = tk.StringVar(value="选择脚本后，点击“开始录制”或“开始回放”。")
         self.timer_var = tk.StringVar(value="")
         self.current_var = tk.StringVar(value="未选择脚本")
-        self.message_var = tk.StringVar(value="欢迎使用塔菲键鼠 3.0")
+        self.message_var = tk.StringVar(value="欢迎使用塔菲键鼠 3.1")
         self.event_count_var = tk.StringVar(value="0 个步骤")
         self.mouse_pos_var = tk.StringVar(value="等待录制点击坐标")
         self.search_var = tk.StringVar(value="")
@@ -152,6 +153,27 @@ class Taffi3App:
         self.root.wm_minsize(1, 1)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
+    def enable_free_window_drag(self, widget: tk.Widget) -> None:
+        widget.bind("<ButtonPress-1>", self.start_free_window_drag, add="+")
+        widget.bind("<B1-Motion>", self.free_window_drag, add="+")
+        widget.bind("<ButtonRelease-1>", self.stop_free_window_drag, add="+")
+        for child in widget.winfo_children():
+            self.enable_free_window_drag(child)
+
+    def start_free_window_drag(self, event: tk.Event) -> None:
+        self.drag_origin = (event.x_root, event.y_root, self.root.winfo_x(), self.root.winfo_y())
+
+    def free_window_drag(self, event: tk.Event) -> None:
+        if not self.drag_origin:
+            return
+        start_x, start_y, window_x, window_y = self.drag_origin
+        next_x = window_x + event.x_root - start_x
+        next_y = window_y + event.y_root - start_y
+        self.root.geometry(f"+{next_x}+{next_y}")
+
+    def stop_free_window_drag(self, _event: tk.Event) -> None:
+        self.drag_origin = None
+
     def build_ui(self) -> None:
         self.root.grid_columnconfigure(0, weight=0)
         self.root.grid_columnconfigure(1, weight=1)
@@ -172,10 +194,11 @@ class Taffi3App:
                 tk.Label(header, image=self.logo_img, bg=self.colors["bg"]).grid(row=0, column=0, rowspan=2, padx=(0, 10))
             except Exception:
                 pass
-        tk.Label(header, text="塔菲键鼠 3.0", bg=self.colors["bg"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 18, "bold")).grid(row=0, column=1, sticky="w")
+        tk.Label(header, text=APP_DISPLAY_NAME, bg=self.colors["bg"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 18, "bold")).grid(row=0, column=1, sticky="w")
         tk.Label(header, text="给普通人用的本地键鼠自动化工作台", bg=self.colors["bg"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9)).grid(row=1, column=1, sticky="w")
         self.status_badge = tk.Label(header, textvariable=self.status_var, bg="#eef4ff", fg=self.colors["blue"], padx=14, pady=6, font=("Microsoft YaHei UI", 9, "bold"))
         self.status_badge.grid(row=0, column=3, rowspan=2, sticky="e")
+        self.enable_free_window_drag(header)
 
     def build_sidebar(self) -> None:
         side = tk.Frame(self.root, bg=self.colors["panel"], highlightbackground=self.colors["line"], highlightthickness=1)
@@ -190,22 +213,25 @@ class Taffi3App:
         tools = tk.Frame(side, bg=self.colors["panel"])
         tools.grid(row=2, column=0, sticky="ew", padx=10, pady=(8, 8))
         self.small_button(tools, "新建", self.create_macro, self.colors["blue"]).pack(side="left", padx=(0, 4))
+        self.small_button(tools, "文件夹", self.create_folder, self.colors["cyan"]).pack(side="left", padx=4)
         self.small_button(tools, "复制", self.duplicate_macro, self.colors["purple"]).pack(side="left", padx=4)
         self.small_button(tools, "导入", self.import_placeholder, self.colors["green"]).pack(side="left", padx=4)
         self.small_button(tools, "导出", self.export_macro, self.colors["green"]).pack(side="left", padx=4)
-        hint = tk.Label(side, text="双击脚本可加载，录制前请先选好目标窗口。", bg=self.colors["panel"], fg=self.colors["muted"], wraplength=260, justify="left", font=("Microsoft YaHei UI", 8))
+        hint = tk.Label(side, text="文件夹可分类管理脚本；双击脚本可加载。", bg=self.colors["panel"], fg=self.colors["muted"], wraplength=260, justify="left", font=("Microsoft YaHei UI", 8))
         hint.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 8))
-        self.macro_tree = ttk.Treeview(side, columns=("name", "events"), show="headings", height=18)
-        self.macro_tree.heading("name", text="名称")
+        self.macro_tree = ttk.Treeview(side, columns=("events",), show="tree headings", height=18)
+        self.macro_tree.heading("#0", text="分类 / 脚本")
         self.macro_tree.heading("events", text="步骤")
-        self.macro_tree.column("name", width=178)
+        self.macro_tree.column("#0", width=190, minwidth=90)
         self.macro_tree.column("events", width=52, anchor="center")
         self.macro_tree.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 8))
         self.macro_tree.bind("<<TreeviewSelect>>", self.select_macro)
+        self.macro_tree.bind("<Double-Button-1>", self.select_macro)
         bottom = tk.Frame(side, bg=self.colors["panel"])
         bottom.grid(row=5, column=0, sticky="ew", padx=10, pady=(0, 10))
         self.small_button(bottom, "删除", self.delete_macro, self.colors["red"]).pack(side="left")
         self.small_button(bottom, "改名", self.rename_macro, self.colors["cyan"]).pack(side="left", padx=(6, 0))
+        self.small_button(bottom, "移动", self.move_macro_to_folder, self.colors["gold"], "#3b2a10").pack(side="left", padx=(6, 0))
         self.small_button(bottom, "目录", lambda: os.startfile(str(DB_PATH.parent)), self.colors["purple"]).pack(side="right")
 
     def build_workspace(self) -> None:
@@ -545,15 +571,48 @@ class Taffi3App:
         self.refresh_runs()
         self.update_buttons()
 
+    def macro_tree_macro_iid(self, macro_id: int) -> str:
+        return f"macro:{macro_id}"
+
+    def macro_tree_folder_iid(self, folder_id: int) -> str:
+        return f"folder:{folder_id}"
+
+    def parse_macro_tree_iid(self, iid: str) -> tuple[str, Optional[int]]:
+        if iid.startswith("macro:"):
+            try:
+                return "macro", int(iid.split(":", 1)[1])
+            except ValueError:
+                return "", None
+        if iid.startswith("folder:"):
+            try:
+                return "folder", int(iid.split(":", 1)[1])
+            except ValueError:
+                return "", None
+        if iid.isdigit():
+            return "macro", int(iid)
+        return "", None
+
     def refresh_macros(self) -> None:
         for item in self.macro_tree.get_children():
             self.macro_tree.delete(item)
-        for macro in self.db.list_macros(self.search_var.get().strip()):
-            star = "★ " if macro.favorite else ""
-            self.macro_tree.insert("", "end", iid=str(macro.id), values=(star + macro.name, macro.event_count))
-        if self.current_macro and self.macro_tree.exists(str(self.current_macro.id)):
-            self.macro_tree.selection_set(str(self.current_macro.id))
-            self.macro_tree.see(str(self.current_macro.id))
+        query = self.search_var.get().strip()
+        for folder in self.db.list_folders():
+            macros = self.db.list_macros_by_folder(folder.id, query)
+            if query and not macros:
+                continue
+            folder_iid = self.macro_tree_folder_iid(folder.id)
+            folder_text = f"[文件夹] {folder.name}"
+            self.macro_tree.insert("", "end", iid=folder_iid, text=folder_text, values=(f"{len(macros)}个",), open=True)
+            for macro in macros:
+                star = "★ " if macro.favorite else ""
+                macro_iid = self.macro_tree_macro_iid(macro.id)
+                self.macro_tree.insert(folder_iid, "end", iid=macro_iid, text=f"  {star}{macro.name}", values=(macro.event_count,))
+        if self.current_macro:
+            macro_iid = self.macro_tree_macro_iid(self.current_macro.id)
+            if self.macro_tree.exists(macro_iid):
+                self.macro_tree.selection_set(macro_iid)
+                self.macro_tree.focus(macro_iid)
+                self.macro_tree.see(macro_iid)
 
     def refresh_events(self) -> None:
         self.event_list.delete(0, "end")
@@ -650,11 +709,11 @@ class Taffi3App:
             self.events = self.repo.load_events(macros[0].id)
             self.current_var.set(f"当前: {macros[0].name}")
             return
-        macro = self.repo.create_macro("欢迎上手", "3.0 默认示例脚本")
+        macro = self.repo.create_macro("欢迎上手", "3.1 默认示例脚本")
         demo_events = [
             {"type": "note", "text": "这是一个示例脚本，帮助你理解步骤结构。", "time": 0.0},
             {"type": "wait", "duration": 1.0, "time": 0.3},
-            {"type": "text", "text": "你好，我是塔菲键鼠 3.0", "time": 1.6},
+            {"type": "text", "text": "你好，我是塔菲键鼠 3.1", "time": 1.6},
         ]
         self.repo.save_events(macro.id, demo_events)
         self.current_macro = self.db.get_macro(macro.id)
@@ -662,13 +721,81 @@ class Taffi3App:
         if self.current_macro:
             self.current_var.set(f"当前: {self.current_macro.name}")
 
+    def selected_tree_item(self) -> str:
+        sel = self.macro_tree.selection()
+        return sel[0] if sel else ""
+
+    def selected_folder_from_tree(self) -> Optional[MacroFolder]:
+        kind, item_id = self.parse_macro_tree_iid(self.selected_tree_item())
+        if kind != "folder" or item_id is None:
+            return None
+        return self.db.get_folder(item_id)
+
+    def selected_macro_from_tree(self) -> Optional[Macro]:
+        kind, item_id = self.parse_macro_tree_iid(self.selected_tree_item())
+        if kind != "macro" or item_id is None:
+            return None
+        return self.db.get_macro(item_id)
+
+    def selected_folder_id(self, default_current: bool = True) -> int:
+        kind, item_id = self.parse_macro_tree_iid(self.selected_tree_item())
+        if kind == "folder" and item_id is not None:
+            return item_id
+        if kind == "macro" and item_id is not None:
+            macro = self.db.get_macro(item_id)
+            if macro:
+                return macro.folder_id
+        if default_current and self.current_macro:
+            return self.current_macro.folder_id
+        return 1
+
+    def choose_folder_dialog(self, title: str, initial_folder_id: int = 1) -> Optional[MacroFolder]:
+        folders = self.db.list_folders()
+        if not folders:
+            return None
+        initial = next((folder for folder in folders if folder.id == initial_folder_id), folders[0])
+        result: Dict[str, Optional[MacroFolder]] = {"folder": None}
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.configure(bg=self.colors["panel"])
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        dlg.geometry(f"360x150+{self.root.winfo_x() + 80}+{self.root.winfo_y() + 80}")
+
+        tk.Label(dlg, text="选择目标文件夹", bg=self.colors["panel"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=18, pady=(16, 8))
+        folder_var = tk.StringVar(value=initial.name)
+        combo = ttk.Combobox(dlg, textvariable=folder_var, values=[folder.name for folder in folders], state="readonly", width=28)
+        combo.pack(fill="x", padx=18)
+        combo.focus_set()
+
+        actions = tk.Frame(dlg, bg=self.colors["panel"])
+        actions.pack(fill="x", padx=18, pady=16)
+
+        def confirm() -> None:
+            chosen = next((folder for folder in folders if folder.name == folder_var.get()), None)
+            result["folder"] = chosen
+            dlg.destroy()
+
+        def cancel() -> None:
+            dlg.destroy()
+
+        self.small_button(actions, "取消", cancel, "#64748b").pack(side="right")
+        self.small_button(actions, "确定", confirm, self.colors["blue"]).pack(side="right", padx=(0, 8))
+        dlg.bind("<Return>", lambda _event: confirm())
+        dlg.bind("<Escape>", lambda _event: cancel())
+        self.root.wait_window(dlg)
+        return result["folder"]
+
     def create_macro(self) -> None:
         if self.state != STATE_IDLE:
             return
         name = simpledialog.askstring("新建脚本", "脚本名称:", initialvalue=time.strftime("新脚本_%m%d_%H%M"))
         if not name:
             return
-        macro = self.repo.create_macro(name, "")
+        folder_id = self.selected_folder_id(default_current=True)
+        macro = self.repo.create_macro(name, "", folder_id=folder_id)
         self.current_macro = macro
         self.events = []
         self.anchor_point = None
@@ -676,9 +803,61 @@ class Taffi3App:
         self.refresh_all()
         self.message(f"已创建脚本: {macro.name}")
 
+    def create_folder(self) -> None:
+        if self.state != STATE_IDLE:
+            return
+        name = simpledialog.askstring("新建文件夹", "文件夹名称:", initialvalue="新文件夹")
+        if not name:
+            return
+        name = name.strip()
+        if not name:
+            self.message("文件夹名称不能为空")
+            return
+        if self.db.get_folder_by_name(name):
+            messagebox.showwarning("新建失败", "已经有同名文件夹了，请换一个名字。")
+            return
+        try:
+            folder_id = self.db.create_folder(name)
+        except Exception as exc:
+            logging.exception("新建文件夹失败")
+            messagebox.showerror("新建失败", str(exc))
+            return
+        self.refresh_macros()
+        folder_iid = self.macro_tree_folder_iid(folder_id)
+        if self.macro_tree.exists(folder_iid):
+            self.macro_tree.selection_set(folder_iid)
+            self.macro_tree.focus(folder_iid)
+            self.macro_tree.see(folder_iid)
+        self.message(f"已创建文件夹: {name}")
+
     def rename_macro(self) -> None:
         if self.state != STATE_IDLE:
             return
+        folder = self.selected_folder_from_tree()
+        if folder:
+            if folder.id == 1:
+                messagebox.showinfo("不能重命名", "“未分类”是默认文件夹，不能重命名。")
+                return
+            new_name = simpledialog.askstring("重命名文件夹", "新的文件夹名称:", initialvalue=folder.name)
+            if not new_name:
+                return
+            new_name = new_name.strip()
+            if not new_name:
+                self.message("文件夹名称不能为空")
+                return
+            same_folder = self.db.get_folder_by_name(new_name)
+            if same_folder and same_folder.id != folder.id:
+                messagebox.showwarning("重命名失败", "已经有同名文件夹了，请换一个名字。")
+                return
+            self.db.update_folder(folder.id, new_name)
+            self.refresh_macros()
+            folder_iid = self.macro_tree_folder_iid(folder.id)
+            if self.macro_tree.exists(folder_iid):
+                self.macro_tree.selection_set(folder_iid)
+                self.macro_tree.focus(folder_iid)
+            self.message(f"文件夹已重命名为: {new_name}")
+            return
+
         macro = self.selected_macro_from_tree() or self.current_macro
         if not macro:
             self.message("请先选择要重命名的脚本")
@@ -703,19 +882,14 @@ class Taffi3App:
         self.update_buttons()
         self.message(f"已重命名为: {new_name}")
 
-    def selected_macro_from_tree(self) -> Optional[Macro]:
-        sel = self.macro_tree.selection()
-        if not sel:
-            return None
-        return self.db.get_macro(int(sel[0]))
-
     def select_macro(self, _event: Any = None) -> None:
         if self.state != STATE_IDLE:
             return
-        sel = self.macro_tree.selection()
-        if not sel:
+        folder = self.selected_folder_from_tree()
+        if folder:
+            self.message(f"已选择文件夹: {folder.name}")
             return
-        macro = self.db.get_macro(int(sel[0]))
+        macro = self.selected_macro_from_tree()
         if not macro:
             return
         self.current_macro = macro
@@ -728,21 +902,35 @@ class Taffi3App:
         self.message(f"已加载: {macro.name}")
 
     def duplicate_macro(self) -> None:
-        sel = self.macro_tree.selection()
-        if not sel:
+        macro = self.selected_macro_from_tree()
+        if not macro:
             self.message("请先选择要复制的脚本")
             return
-        macro = self.repo.duplicate_macro(int(sel[0]))
-        if macro:
+        copy = self.repo.duplicate_macro(macro.id)
+        if copy:
             self.refresh_macros()
-            self.message(f"已复制: {macro.name}")
+            self.message(f"已复制: {copy.name}")
 
     def delete_macro(self) -> None:
-        sel = self.macro_tree.selection()
-        if not sel:
+        folder = self.selected_folder_from_tree()
+        if folder:
+            if folder.id == 1:
+                messagebox.showinfo("不能删除", "“未分类”是默认文件夹，不能删除。")
+                return
+            count = len(self.db.list_macros_by_folder(folder.id))
+            text = f"确定删除文件夹“{folder.name}”吗？\n里面的 {count} 个脚本不会删除，会移动到“未分类”。"
+            if not messagebox.askyesno("删除文件夹", text):
+                return
+            self.db.delete_folder(folder.id)
+            if self.current_macro:
+                self.current_macro = self.db.get_macro(self.current_macro.id)
+            self.refresh_all()
+            self.message(f"文件夹已删除，脚本已移到未分类: {folder.name}")
             return
-        macro = self.db.get_macro(int(sel[0]))
+
+        macro = self.selected_macro_from_tree()
         if not macro:
+            self.message("请先选择要删除的脚本或文件夹")
             return
         if not messagebox.askyesno("删除脚本", f"确定删除“{macro.name}”吗？"):
             return
@@ -754,6 +942,31 @@ class Taffi3App:
             self.current_var.set("未选择脚本")
         self.refresh_all()
         self.message("脚本已删除")
+
+    def move_macro_to_folder(self) -> None:
+        if self.state != STATE_IDLE:
+            return
+        macro = self.selected_macro_from_tree()
+        if not macro:
+            self.message("请先选择要移动的脚本")
+            return
+        folder = self.choose_folder_dialog("移动脚本", macro.folder_id)
+        if not folder:
+            return
+        if folder.id == macro.folder_id:
+            self.message("脚本已经在这个文件夹里")
+            return
+        self.db.move_macro_to_folder(macro.id, folder.id)
+        updated = self.db.get_macro(macro.id)
+        if self.current_macro and self.current_macro.id == macro.id and updated:
+            self.current_macro = updated
+        self.refresh_all()
+        macro_iid = self.macro_tree_macro_iid(macro.id)
+        if self.macro_tree.exists(macro_iid):
+            self.macro_tree.selection_set(macro_iid)
+            self.macro_tree.focus(macro_iid)
+            self.macro_tree.see(macro_iid)
+        self.message(f"已移动到文件夹: {folder.name}")
 
     def export_macro(self) -> None:
         if not self.current_macro:
@@ -770,10 +983,13 @@ class Taffi3App:
         if not path:
             return
         try:
+            folder_id = self.selected_folder_id(default_current=True)
             macro = self.repo.import_macro_file(Path(path))
             if not macro:
                 messagebox.showwarning("导入失败", "没有从这个文件里识别出可导入的脚本。")
                 return
+            self.db.move_macro_to_folder(macro.id, folder_id)
+            macro = self.db.get_macro(macro.id) or macro
             self.current_macro = macro
             self.events = self.repo.load_events(macro.id)
             self.current_var.set(f"当前: {macro.name}")
