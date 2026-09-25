@@ -41,6 +41,12 @@ class Taffi3App:
         self.db = Database(DB_PATH)
         self.repo = MacroRepository(self.db)
         self.vision = VisionEngine()
+        stored_folder_state = self.db.get_setting("folder_open_state", {})
+        self.folder_open_state: Dict[str, bool] = {
+            str(folder_id): bool(is_open)
+            for folder_id, is_open in stored_folder_state.items()
+            if isinstance(stored_folder_state, dict)
+        } if isinstance(stored_folder_state, dict) else {}
         self.current_macro: Optional[Macro] = None
         self.events: List[Dict[str, Any]] = []
         self.references: List[ReferenceImage] = []
@@ -85,7 +91,7 @@ class Taffi3App:
         self.main_hint_var = tk.StringVar(value="选择脚本后，点击“开始录制”或“开始回放”。")
         self.timer_var = tk.StringVar(value="")
         self.current_var = tk.StringVar(value="未选择脚本")
-        self.message_var = tk.StringVar(value="欢迎使用塔菲键鼠 3.1")
+        self.message_var = tk.StringVar(value="欢迎使用塔菲键鼠 3.2")
         self.event_count_var = tk.StringVar(value="0 个步骤")
         self.mouse_pos_var = tk.StringVar(value="等待录制点击坐标")
         self.search_var = tk.StringVar(value="")
@@ -227,6 +233,8 @@ class Taffi3App:
         self.macro_tree.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 8))
         self.macro_tree.bind("<<TreeviewSelect>>", self.select_macro)
         self.macro_tree.bind("<Double-Button-1>", self.select_macro)
+        self.macro_tree.bind("<<TreeviewOpen>>", self.on_folder_tree_state_change)
+        self.macro_tree.bind("<<TreeviewClose>>", self.on_folder_tree_state_change)
         bottom = tk.Frame(side, bg=self.colors["panel"])
         bottom.grid(row=5, column=0, sticky="ew", padx=10, pady=(0, 10))
         self.small_button(bottom, "删除", self.delete_macro, self.colors["red"]).pack(side="left")
@@ -563,6 +571,8 @@ class Taffi3App:
         self.db.set_setting("threshold", float(self.threshold_var.get()))
         self.db.set_setting("anchor_radius", int(self.anchor_radius_var.get()))
         self.db.set_setting("move_interval", float(self.move_interval_var.get()))
+        self.capture_folder_open_state(persist=False)
+        self.db.set_setting("folder_open_state", self.folder_open_state)
 
     def refresh_all(self) -> None:
         self.refresh_macros()
@@ -576,6 +586,19 @@ class Taffi3App:
 
     def macro_tree_folder_iid(self, folder_id: int) -> str:
         return f"folder:{folder_id}"
+
+    def on_folder_tree_state_change(self, _event: Optional[tk.Event] = None) -> None:
+        self.root.after_idle(self.capture_folder_open_state)
+
+    def capture_folder_open_state(self, persist: bool = True) -> None:
+        if not hasattr(self, "macro_tree"):
+            return
+        for folder_iid in self.macro_tree.get_children(""):
+            item_type, folder_id = self.parse_macro_tree_iid(folder_iid)
+            if item_type == "folder" and folder_id is not None:
+                self.folder_open_state[str(folder_id)] = bool(self.macro_tree.item(folder_iid, "open"))
+        if persist:
+            self.db.set_setting("folder_open_state", self.folder_open_state)
 
     def parse_macro_tree_iid(self, iid: str) -> tuple[str, Optional[int]]:
         if iid.startswith("macro:"):
@@ -593,6 +616,7 @@ class Taffi3App:
         return "", None
 
     def refresh_macros(self) -> None:
+        self.capture_folder_open_state(persist=False)
         for item in self.macro_tree.get_children():
             self.macro_tree.delete(item)
         query = self.search_var.get().strip()
@@ -602,7 +626,14 @@ class Taffi3App:
                 continue
             folder_iid = self.macro_tree_folder_iid(folder.id)
             folder_text = f"[文件夹] {folder.name}"
-            self.macro_tree.insert("", "end", iid=folder_iid, text=folder_text, values=(f"{len(macros)}个",), open=True)
+            self.macro_tree.insert(
+                "",
+                "end",
+                iid=folder_iid,
+                text=folder_text,
+                values=(f"{len(macros)}个",),
+                open=self.folder_open_state.get(str(folder.id), True),
+            )
             for macro in macros:
                 star = "★ " if macro.favorite else ""
                 macro_iid = self.macro_tree_macro_iid(macro.id)
@@ -612,7 +643,6 @@ class Taffi3App:
             if self.macro_tree.exists(macro_iid):
                 self.macro_tree.selection_set(macro_iid)
                 self.macro_tree.focus(macro_iid)
-                self.macro_tree.see(macro_iid)
 
     def refresh_events(self) -> None:
         self.event_list.delete(0, "end")
@@ -709,11 +739,11 @@ class Taffi3App:
             self.events = self.repo.load_events(macros[0].id)
             self.current_var.set(f"当前: {macros[0].name}")
             return
-        macro = self.repo.create_macro("欢迎上手", "3.1 默认示例脚本")
+            macro = self.repo.create_macro("欢迎上手", "3.2 默认示例脚本")
         demo_events = [
             {"type": "note", "text": "这是一个示例脚本，帮助你理解步骤结构。", "time": 0.0},
             {"type": "wait", "duration": 1.0, "time": 0.3},
-            {"type": "text", "text": "你好，我是塔菲键鼠 3.1", "time": 1.6},
+            {"type": "text", "text": "你好，我是塔菲键鼠 3.2", "time": 1.6},
         ]
         self.repo.save_events(macro.id, demo_events)
         self.current_macro = self.db.get_macro(macro.id)
@@ -818,6 +848,8 @@ class Taffi3App:
             return
         try:
             folder_id = self.db.create_folder(name)
+            self.folder_open_state[str(folder_id)] = True
+            self.db.set_setting("folder_open_state", self.folder_open_state)
         except Exception as exc:
             logging.exception("新建文件夹失败")
             messagebox.showerror("新建失败", str(exc))
