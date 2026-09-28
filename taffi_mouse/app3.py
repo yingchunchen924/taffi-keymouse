@@ -29,6 +29,83 @@ STATE_PLAYING = "回放中"
 STATE_PAUSED = "已暂停"
 
 
+LIGHT_COLORS = {
+    "bg": "#f3f6fb",
+    "panel": "#ffffff",
+    "soft": "#f8fafc",
+    "soft2": "#edf4ff",
+    "line": "#d9e2ee",
+    "ink": "#172033",
+    "muted": "#64748b",
+    "input": "#ffffff",
+    "input_line": "#cbd5e1",
+    "select": "#dbeafe",
+    "disabled": "#cbd5e1",
+    "disabled_fg": "#f8fafc",
+    "blue": "#2563eb",
+    "green": "#0f9f6e",
+    "red": "#e11d48",
+    "gold": "#f5b942",
+    "gold_fg": "#3b2a10",
+    "purple": "#6d5bd0",
+    "cyan": "#0891b2",
+    "slate": "#334155",
+    "orange": "#f97316",
+    "state_idle_bg": "#eef4ff",
+    "state_idle_line": "#c7d7fe",
+    "state_recording_bg": "#fff1f2",
+    "state_recording_line": "#fecdd3",
+    "state_playing_bg": "#ecfdf3",
+    "state_playing_line": "#bbf7d0",
+    "state_paused_bg": "#fffbeb",
+    "state_paused_line": "#fde68a",
+    "state_paused_fg": "#9a6700",
+    "mode_bg": "#edf4ff",
+    "mode_line": "#bfdbfe",
+    "preview_bg": "#ffffff",
+    "tab": "#e8eef6",
+    "tree_heading": "#eef2f7",
+}
+
+DARK_COLORS = {
+    "bg": "#0f172a",
+    "panel": "#172033",
+    "soft": "#1f2a44",
+    "soft2": "#253451",
+    "line": "#334155",
+    "ink": "#e5edf7",
+    "muted": "#9fb0c7",
+    "input": "#0b1220",
+    "input_line": "#42526a",
+    "select": "#1d4ed8",
+    "disabled": "#334155",
+    "disabled_fg": "#94a3b8",
+    "blue": "#60a5fa",
+    "green": "#34d399",
+    "red": "#fb7185",
+    "gold": "#facc15",
+    "gold_fg": "#271d04",
+    "purple": "#a78bfa",
+    "cyan": "#22d3ee",
+    "slate": "#64748b",
+    "orange": "#fb923c",
+    "state_idle_bg": "#16233d",
+    "state_idle_line": "#28446f",
+    "state_recording_bg": "#3a1724",
+    "state_recording_line": "#7f1d3a",
+    "state_playing_bg": "#123225",
+    "state_playing_line": "#176044",
+    "state_paused_bg": "#3d3112",
+    "state_paused_line": "#8a6b12",
+    "state_paused_fg": "#fde68a",
+    "mode_bg": "#16233d",
+    "mode_line": "#28446f",
+    "preview_bg": "#0b1220",
+    "tab": "#22304a",
+    "tree_heading": "#22304a",
+}
+
+
 class Taffi3App:
     def __init__(self) -> None:
         ensure_dirs()
@@ -56,24 +133,10 @@ class Taffi3App:
         self.pending_refresh = False
         self.drag_origin: Optional[tuple[int, int, int, int]] = None
 
-        self.colors = {
-            "bg": "#f3f6fb",
-            "panel": "#ffffff",
-            "soft": "#f8fafc",
-            "soft2": "#edf4ff",
-            "line": "#d9e2ee",
-            "ink": "#172033",
-            "muted": "#64748b",
-            "blue": "#2563eb",
-            "green": "#0f9f6e",
-            "red": "#e11d48",
-            "gold": "#f5b942",
-            "purple": "#6d5bd0",
-            "cyan": "#0891b2",
-            "slate": "#334155",
-            "orange": "#f97316",
-            "disabled": "#cbd5e1",
-        }
+        self.theme_mode = str(self.setting("theme", "light"))
+        if self.theme_mode not in ("light", "dark"):
+            self.theme_mode = "light"
+        self.colors = self.theme_colors(self.theme_mode)
 
         self.root = tk.Tk()
         self.root.title(f"{APP_DISPLAY_NAME} v{APP_VERSION}")
@@ -91,7 +154,7 @@ class Taffi3App:
         self.main_hint_var = tk.StringVar(value="选择脚本后，点击“开始录制”或“开始回放”。")
         self.timer_var = tk.StringVar(value="")
         self.current_var = tk.StringVar(value="未选择脚本")
-        self.message_var = tk.StringVar(value="欢迎使用塔菲键鼠 3.2")
+        self.message_var = tk.StringVar(value=f"欢迎使用{APP_DISPLAY_NAME}")
         self.event_count_var = tk.StringVar(value="0 个步骤")
         self.mouse_pos_var = tk.StringVar(value="等待录制点击坐标")
         self.search_var = tk.StringVar(value="")
@@ -100,6 +163,7 @@ class Taffi3App:
         self.mode_summary_var = tk.StringVar(value="回放：单次")
         self.anchor_guard_var = tk.BooleanVar(value=bool(self.setting("anchor_guard", True)))
         self.topmost_var = tk.BooleanVar(value=bool(self.setting("topmost", False)))
+        self.dark_mode_var = tk.BooleanVar(value=self.theme_mode == "dark")
         self.safe_confirm_var = tk.BooleanVar(value=bool(self.setting("safety_ack", False)))
         self.speed_var = tk.StringVar(value=str(self.setting("speed_label", "1.0x")))
         self.countdown_var = tk.IntVar(value=int(self.setting("countdown", 2)))
@@ -133,17 +197,28 @@ class Taffi3App:
         if not self.safe_confirm_var.get():
             self.root.after(350, self.show_safety_dialog)
 
+    def theme_colors(self, mode: str) -> Dict[str, str]:
+        return dict(DARK_COLORS if mode == "dark" else LIGHT_COLORS)
+
     def configure_style(self) -> None:
         style = ttk.Style()
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("Treeview", rowheight=28, font=("Microsoft YaHei UI", 9), background="#ffffff", fieldbackground="#ffffff", borderwidth=0)
-        style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 9, "bold"), background="#eef2f7", relief="flat")
-        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", self.colors["ink"])])
+        style.configure(
+            "Treeview",
+            rowheight=28,
+            font=("Microsoft YaHei UI", 9),
+            background=self.colors["input"],
+            fieldbackground=self.colors["input"],
+            foreground=self.colors["ink"],
+            borderwidth=0,
+        )
+        style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 9, "bold"), background=self.colors["tree_heading"], foreground=self.colors["ink"], relief="flat")
+        style.map("Treeview", background=[("selected", self.colors["select"])], foreground=[("selected", "#ffffff")])
         style.configure("TNotebook", background=self.colors["bg"], borderwidth=0, tabmargins=(0, 4, 0, 0))
-        style.configure("TNotebook.Tab", font=("Microsoft YaHei UI", 9), padding=(16, 8), background="#e8eef6", foreground=self.colors["muted"])
+        style.configure("TNotebook.Tab", font=("Microsoft YaHei UI", 9), padding=(16, 8), background=self.colors["tab"], foreground=self.colors["muted"])
         style.map("TNotebook.Tab", background=[("selected", self.colors["panel"])], foreground=[("selected", self.colors["ink"])])
         style.configure("TCombobox", padding=(5, 3), arrowsize=13)
 
@@ -202,7 +277,7 @@ class Taffi3App:
                 pass
         tk.Label(header, text=APP_DISPLAY_NAME, bg=self.colors["bg"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 18, "bold")).grid(row=0, column=1, sticky="w")
         tk.Label(header, text="给普通人用的本地键鼠自动化工作台", bg=self.colors["bg"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9)).grid(row=1, column=1, sticky="w")
-        self.status_badge = tk.Label(header, textvariable=self.status_var, bg="#eef4ff", fg=self.colors["blue"], padx=14, pady=6, font=("Microsoft YaHei UI", 9, "bold"))
+        self.status_badge = tk.Label(header, textvariable=self.status_var, bg=self.colors["state_idle_bg"], fg=self.colors["blue"], padx=14, pady=6, font=("Microsoft YaHei UI", 9, "bold"))
         self.status_badge.grid(row=0, column=3, rowspan=2, sticky="e")
         self.enable_free_window_drag(header)
 
@@ -214,7 +289,7 @@ class Taffi3App:
         tk.Label(side, text="脚本库", bg=self.colors["panel"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 12, "bold")).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 6))
         search = tk.Frame(side, bg=self.colors["panel"])
         search.grid(row=1, column=0, sticky="ew", padx=10)
-        tk.Entry(search, textvariable=self.search_var, width=18, bg=self.colors["soft"], relief="solid", bd=1, font=("Microsoft YaHei UI", 9)).pack(side="left", fill="x", expand=True)
+        tk.Entry(search, textvariable=self.search_var, width=18, bg=self.colors["input"], fg=self.colors["ink"], insertbackground=self.colors["ink"], relief="solid", bd=1, font=("Microsoft YaHei UI", 9)).pack(side="left", fill="x", expand=True)
         self.small_button(search, "搜索", self.refresh_macros, self.colors["blue"]).pack(side="left", padx=(6, 0))
         tools = tk.Frame(side, bg=self.colors["panel"])
         tools.grid(row=2, column=0, sticky="ew", padx=10, pady=(8, 8))
@@ -239,7 +314,7 @@ class Taffi3App:
         bottom.grid(row=5, column=0, sticky="ew", padx=10, pady=(0, 10))
         self.small_button(bottom, "删除", self.delete_macro, self.colors["red"]).pack(side="left")
         self.small_button(bottom, "改名", self.rename_macro, self.colors["cyan"]).pack(side="left", padx=(6, 0))
-        self.small_button(bottom, "移动", self.move_macro_to_folder, self.colors["gold"], "#3b2a10").pack(side="left", padx=(6, 0))
+        self.small_button(bottom, "移动", self.move_macro_to_folder, self.colors["gold"], self.colors["gold_fg"]).pack(side="left", padx=(6, 0))
         self.small_button(bottom, "目录", lambda: os.startfile(str(DB_PATH.parent)), self.colors["purple"]).pack(side="right")
 
     def build_workspace(self) -> None:
@@ -262,11 +337,11 @@ class Taffi3App:
         panel.grid_columnconfigure(8, weight=1)
         self.btn_record = self.action_button(panel, "● 开始录制", self.start_recording, self.colors["red"], padx=18, pady=10, font_size=10)
         self.btn_record.grid(row=0, column=0, padx=(12, 5), pady=10)
-        self.btn_stop = self.action_button(panel, "■ 停止", self.stop_action, "#475569", padx=16, pady=10, font_size=10)
+        self.btn_stop = self.action_button(panel, "■ 停止", self.stop_action, self.colors["slate"], padx=16, pady=10, font_size=10)
         self.btn_stop.grid(row=0, column=1, padx=5, pady=10)
         self.btn_play = self.action_button(panel, "▶ 开始回放", self.start_playback, self.colors["green"], padx=18, pady=10, font_size=10)
         self.btn_play.grid(row=0, column=2, padx=5, pady=10)
-        self.btn_pause = self.action_button(panel, "Ⅱ 暂停", self.pause_playback, self.colors["gold"], "#3b2a10", padx=14, pady=10)
+        self.btn_pause = self.action_button(panel, "Ⅱ 暂停", self.pause_playback, self.colors["gold"], self.colors["gold_fg"], padx=14, pady=10)
         self.btn_pause.grid(row=0, column=3, padx=5, pady=10)
         self.btn_save = self.action_button(panel, "保存脚本", self.save_events, self.colors["blue"], padx=13, pady=9)
         self.btn_save.grid(row=0, column=4, padx=5, pady=10)
@@ -280,15 +355,15 @@ class Taffi3App:
         tk.Label(summary, textvariable=self.mode_summary_var, bg=self.colors["soft"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 8)).pack(side="top", anchor="e", padx=10, pady=(0, 6))
 
     def build_status_panel(self, parent: tk.Frame) -> None:
-        self.status_panel = tk.Frame(parent, bg="#edf4ff", highlightbackground="#c7d7fe", highlightthickness=1)
+        self.status_panel = tk.Frame(parent, bg=self.colors["state_idle_bg"], highlightbackground=self.colors["state_idle_line"], highlightthickness=1)
         self.status_panel.grid(row=1, column=0, sticky="ew", pady=(8, 6))
         self.status_panel.grid_columnconfigure(1, weight=1)
-        self.status_icon = tk.Label(self.status_panel, text="●", bg="#edf4ff", fg=self.colors["blue"], font=("Microsoft YaHei UI", 24, "bold"), width=3)
+        self.status_icon = tk.Label(self.status_panel, text="●", bg=self.colors["state_idle_bg"], fg=self.colors["blue"], font=("Microsoft YaHei UI", 24, "bold"), width=3)
         self.status_icon.grid(row=0, column=0, rowspan=2, padx=(12, 4), pady=10)
-        tk.Label(self.status_panel, textvariable=self.main_title_var, bg="#edf4ff", fg=self.colors["ink"], font=("Microsoft YaHei UI", 15, "bold")).grid(row=0, column=1, sticky="w", pady=(10, 1))
-        self.status_hint = tk.Label(self.status_panel, textvariable=self.main_hint_var, bg="#edf4ff", fg=self.colors["muted"], font=("Microsoft YaHei UI", 9), justify="left")
+        tk.Label(self.status_panel, textvariable=self.main_title_var, bg=self.colors["state_idle_bg"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 15, "bold")).grid(row=0, column=1, sticky="w", pady=(10, 1))
+        self.status_hint = tk.Label(self.status_panel, textvariable=self.main_hint_var, bg=self.colors["state_idle_bg"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9), justify="left")
         self.status_hint.grid(row=1, column=1, sticky="w", pady=(1, 10))
-        self.timer_label = tk.Label(self.status_panel, textvariable=self.timer_var, bg="#edf4ff", fg=self.colors["blue"], font=("Consolas", 19, "bold"), padx=14)
+        self.timer_label = tk.Label(self.status_panel, textvariable=self.timer_var, bg=self.colors["state_idle_bg"], fg=self.colors["blue"], font=("Consolas", 19, "bold"), padx=14)
         self.timer_label.grid(row=0, column=2, rowspan=2, sticky="e", padx=(8, 14))
 
     def build_settings_strip(self, parent: tk.Frame) -> None:
@@ -297,9 +372,9 @@ class Taffi3App:
         top = tk.Frame(panel, bg=self.colors["panel"])
         top.pack(fill="x", padx=12, pady=(9, 4))
         tk.Label(top, text="常用设置", bg=self.colors["panel"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 10, "bold")).pack(side="left", padx=(0, 10))
-        mode_box = tk.Frame(top, bg="#edf4ff", highlightbackground="#bfdbfe", highlightthickness=1)
+        mode_box = tk.Frame(top, bg=self.colors["mode_bg"], highlightbackground=self.colors["mode_line"], highlightthickness=1)
         mode_box.pack(side="left", padx=(0, 10))
-        tk.Label(mode_box, text="回放", bg="#edf4ff", fg=self.colors["blue"], font=("Microsoft YaHei UI", 9, "bold")).pack(side="left", padx=(8, 4))
+        tk.Label(mode_box, text="回放", bg=self.colors["mode_bg"], fg=self.colors["blue"], font=("Microsoft YaHei UI", 9, "bold")).pack(side="left", padx=(8, 4))
         for text, value in [("单次", "single"), ("指定次数", "count"), ("一直循环", "loop")]:
             tk.Radiobutton(
                 mode_box,
@@ -307,13 +382,14 @@ class Taffi3App:
                 value=value,
                 variable=self.playback_mode_var,
                 command=self.update_playback_mode_ui,
-                bg="#edf4ff",
-                activebackground="#edf4ff",
-                selectcolor="#ffffff",
+                bg=self.colors["mode_bg"],
+                activebackground=self.colors["mode_bg"],
+                selectcolor=self.colors["input"],
                 fg=self.colors["ink"],
+                activeforeground=self.colors["ink"],
                 font=("Microsoft YaHei UI", 9),
             ).pack(side="left", padx=(0, 3))
-        self.playback_count_label = tk.Label(mode_box, text="次数", bg="#edf4ff", fg=self.colors["muted"], font=("Microsoft YaHei UI", 9))
+        self.playback_count_label = tk.Label(mode_box, text="次数", bg=self.colors["mode_bg"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9))
         self.playback_count_label.pack(side="left", padx=(4, 3))
         self.playback_count_spin = tk.Spinbox(
             mode_box,
@@ -323,7 +399,9 @@ class Taffi3App:
             increment=1,
             width=4,
             justify="center",
-            bg="#ffffff",
+            bg=self.colors["input"],
+            fg=self.colors["ink"],
+            insertbackground=self.colors["ink"],
             relief="solid",
             bd=1,
         )
@@ -335,13 +413,14 @@ class Taffi3App:
         tk.Label(bottom, text="速度", bg=self.colors["panel"], fg=self.colors["muted"]).pack(side="left", padx=(0, 4))
         ttk.Combobox(bottom, textvariable=self.speed_var, values=("0.25x", "0.5x", "0.75x", "1.0x", "1.5x", "2.0x", "3.0x"), width=7, state="readonly").pack(side="left", padx=(0, 10))
         tk.Label(bottom, text="开始前倒计时", bg=self.colors["panel"], fg=self.colors["muted"]).pack(side="left", padx=(0, 3))
-        tk.Spinbox(bottom, textvariable=self.countdown_var, from_=0, to=10, increment=1, width=4, justify="center", bg=self.colors["soft"], relief="solid", bd=1).pack(side="left", padx=(0, 8))
+        tk.Spinbox(bottom, textvariable=self.countdown_var, from_=0, to=10, increment=1, width=4, justify="center", bg=self.colors["input"], fg=self.colors["ink"], insertbackground=self.colors["ink"], relief="solid", bd=1).pack(side="left", padx=(0, 8))
         self.loop_interval_label = tk.Label(bottom, text="每次间隔", bg=self.colors["panel"], fg=self.colors["muted"])
         self.loop_interval_label.pack(side="left", padx=(0, 3))
-        self.loop_interval_spin = tk.Spinbox(bottom, textvariable=self.loop_interval_var, from_=0.1, to=10.0, increment=0.1, width=5, justify="center", bg=self.colors["soft"], relief="solid", bd=1)
+        self.loop_interval_spin = tk.Spinbox(bottom, textvariable=self.loop_interval_var, from_=0.1, to=10.0, increment=0.1, width=5, justify="center", bg=self.colors["input"], fg=self.colors["ink"], insertbackground=self.colors["ink"], relief="solid", bd=1)
         self.loop_interval_spin.pack(side="left", padx=(0, 12))
-        tk.Checkbutton(bottom, text="坐标保险", variable=self.anchor_guard_var, bg=self.colors["panel"], activebackground=self.colors["panel"], selectcolor="#edf4ff").pack(side="left", padx=(0, 8))
-        tk.Checkbutton(bottom, text="窗口置顶", variable=self.topmost_var, command=self.apply_topmost, bg=self.colors["panel"], activebackground=self.colors["panel"], selectcolor="#edf4ff").pack(side="left", padx=(0, 8))
+        tk.Checkbutton(bottom, text="坐标保险", variable=self.anchor_guard_var, bg=self.colors["panel"], fg=self.colors["ink"], activebackground=self.colors["panel"], activeforeground=self.colors["ink"], selectcolor=self.colors["mode_bg"]).pack(side="left", padx=(0, 8))
+        tk.Checkbutton(bottom, text="窗口置顶", variable=self.topmost_var, command=self.apply_topmost, bg=self.colors["panel"], fg=self.colors["ink"], activebackground=self.colors["panel"], activeforeground=self.colors["ink"], selectcolor=self.colors["mode_bg"]).pack(side="left", padx=(0, 8))
+        tk.Checkbutton(bottom, text="夜间模式", variable=self.dark_mode_var, command=self.toggle_theme, bg=self.colors["panel"], fg=self.colors["ink"], activebackground=self.colors["panel"], activeforeground=self.colors["ink"], selectcolor=self.colors["mode_bg"]).pack(side="left", padx=(0, 8))
         self.update_playback_mode_ui()
 
     def build_tabs(self, parent: tk.Frame) -> None:
@@ -384,8 +463,8 @@ class Taffi3App:
         head.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 8))
         tk.Label(head, text="脚本步骤", bg=self.colors["panel"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 13, "bold")).pack(side="left")
         tk.Label(head, textvariable=self.event_count_var, bg=self.colors["panel"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9)).pack(side="left", padx=8)
-        self.small_button(head, "下移", self.move_event_down, self.colors["gold"], "#3b2a10").pack(side="right", padx=3)
-        self.small_button(head, "上移", self.move_event_up, self.colors["gold"], "#3b2a10").pack(side="right", padx=3)
+        self.small_button(head, "下移", self.move_event_down, self.colors["gold"], self.colors["gold_fg"]).pack(side="right", padx=3)
+        self.small_button(head, "上移", self.move_event_up, self.colors["gold"], self.colors["gold_fg"]).pack(side="right", padx=3)
         self.small_button(head, "删除", self.delete_event, self.colors["red"]).pack(side="right", padx=3)
         self.small_button(head, "编辑", self.edit_event, self.colors["blue"]).pack(side="right", padx=3)
         self.small_button(head, "识图校验", self.add_verify_event, self.colors["cyan"]).pack(side="right", padx=3)
@@ -396,7 +475,7 @@ class Taffi3App:
         body.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         body.grid_columnconfigure(0, weight=1)
         body.grid_rowconfigure(0, weight=1)
-        self.event_list = tk.Listbox(body, bg="#ffffff", fg=self.colors["ink"], selectbackground="#dbeafe", font=("Consolas", 10), activestyle="none", relief="solid", bd=1)
+        self.event_list = tk.Listbox(body, bg=self.colors["input"], fg=self.colors["ink"], selectbackground=self.colors["select"], selectforeground="#ffffff", font=("Consolas", 10), activestyle="none", relief="solid", bd=1)
         self.event_list.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(body, orient="vertical", command=self.event_list.yview)
         scroll.grid(row=0, column=1, sticky="ns")
@@ -436,10 +515,10 @@ class Taffi3App:
         detail.grid(row=0, column=2, sticky="ns", padx=(12, 0))
         detail.grid_propagate(False)
         tk.Label(detail, text="图片预览", bg=self.colors["soft"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(12, 6))
-        self.ref_preview_holder = tk.Frame(detail, bg="#ffffff", highlightbackground=self.colors["line"], highlightthickness=1, width=230, height=135)
+        self.ref_preview_holder = tk.Frame(detail, bg=self.colors["preview_bg"], highlightbackground=self.colors["line"], highlightthickness=1, width=230, height=135)
         self.ref_preview_holder.pack(anchor="w", padx=12)
         self.ref_preview_holder.pack_propagate(False)
-        self.ref_preview_label = tk.Label(self.ref_preview_holder, text="未选择图片", bg="#ffffff", fg=self.colors["muted"], font=("Microsoft YaHei UI", 9), wraplength=200, justify="center")
+        self.ref_preview_label = tk.Label(self.ref_preview_holder, text="未选择图片", bg=self.colors["preview_bg"], fg=self.colors["muted"], font=("Microsoft YaHei UI", 9), wraplength=200, justify="center")
         self.ref_preview_label.pack(fill="both", expand=True)
         self.ref_detail_var = tk.StringVar(value="选择一张参考图后，这里会显示尺寸和状态。")
         tk.Label(detail, textvariable=self.ref_detail_var, bg=self.colors["soft"], fg=self.colors["muted"], justify="left", wraplength=230, font=("Microsoft YaHei UI", 8)).pack(anchor="w", padx=12, pady=(8, 12))
@@ -506,7 +585,7 @@ class Taffi3App:
         card = tk.Frame(parent, bg=self.colors["soft"], highlightbackground=self.colors["line"], highlightthickness=1)
         tk.Label(card, text=title, bg=self.colors["soft"], fg=self.colors["ink"], font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", padx=12, pady=(12, 2))
         tk.Label(card, text=hint, bg=self.colors["soft"], fg=self.colors["muted"], wraplength=390, justify="left", font=("Microsoft YaHei UI", 8)).pack(anchor="w", padx=12, pady=(0, 8))
-        tk.Spinbox(card, textvariable=var, from_=start, to=end, increment=inc, width=9, justify="center", bg="#ffffff", relief="solid", bd=1).pack(anchor="w", padx=12, pady=(0, 12))
+        tk.Spinbox(card, textvariable=var, from_=start, to=end, increment=inc, width=9, justify="center", bg=self.colors["input"], fg=self.colors["ink"], insertbackground=self.colors["ink"], relief="solid", bd=1).pack(anchor="w", padx=12, pady=(0, 12))
         return card
 
     def action_button(self, parent: tk.Widget, text: str, command: Any, color: str, fg: str = "white", padx: int = 14, pady: int = 8, font_size: int = 9) -> tk.Button:
@@ -532,15 +611,15 @@ class Taffi3App:
             count = 1
             self.playback_count_var.set(count)
         if mode == "count":
-            self.playback_count_spin.configure(state="normal", bg="#ffffff", fg=self.colors["ink"])
+            self.playback_count_spin.configure(state="normal", bg=self.colors["input"], fg=self.colors["ink"])
             self.playback_count_label.configure(fg=self.colors["ink"])
-            self.loop_interval_spin.configure(state="normal", bg=self.colors["soft"], fg=self.colors["ink"])
+            self.loop_interval_spin.configure(state="normal", bg=self.colors["input"], fg=self.colors["ink"])
             self.loop_interval_label.configure(fg=self.colors["muted"])
             self.mode_summary_var.set(f"回放：指定 {count} 次")
         elif mode == "loop":
             self.playback_count_spin.configure(state="disabled", disabledforeground=self.colors["muted"])
             self.playback_count_label.configure(fg=self.colors["muted"])
-            self.loop_interval_spin.configure(state="normal", bg=self.colors["soft"], fg=self.colors["ink"])
+            self.loop_interval_spin.configure(state="normal", bg=self.colors["input"], fg=self.colors["ink"])
             self.loop_interval_label.configure(fg=self.colors["muted"])
             self.mode_summary_var.set("回放：一直循环")
         else:
@@ -549,6 +628,23 @@ class Taffi3App:
             self.loop_interval_spin.configure(state="disabled", disabledforeground=self.colors["muted"])
             self.loop_interval_label.configure(fg=self.colors["muted"])
             self.mode_summary_var.set("回放：单次")
+
+    def toggle_theme(self) -> None:
+        if self.state != STATE_IDLE:
+            self.dark_mode_var.set(self.theme_mode == "dark")
+            self.message("录制或回放过程中不能切换夜间模式")
+            return
+        self.theme_mode = "dark" if self.dark_mode_var.get() else "light"
+        self.colors = self.theme_colors(self.theme_mode)
+        self.save_settings()
+        self.root.configure(bg=self.colors["bg"])
+        for child in self.root.winfo_children():
+            child.destroy()
+        self.configure_style()
+        self.build_ui()
+        self.refresh_all()
+        self.apply_activity_state()
+        self.message("已切换到夜间模式" if self.theme_mode == "dark" else "已切换到日间模式")
 
     def save_settings(self) -> None:
         mode = self.playback_mode_var.get()
@@ -564,6 +660,7 @@ class Taffi3App:
         self.db.set_setting("loop", mode == "loop")
         self.db.set_setting("anchor_guard", bool(self.anchor_guard_var.get()))
         self.db.set_setting("topmost", bool(self.topmost_var.get()))
+        self.db.set_setting("theme", self.theme_mode)
         self.db.set_setting("safety_ack", bool(self.safe_confirm_var.get()))
         self.db.set_setting("speed_label", self.speed_var.get())
         self.db.set_setting("countdown", int(self.countdown_var.get()))
@@ -739,11 +836,11 @@ class Taffi3App:
             self.events = self.repo.load_events(macros[0].id)
             self.current_var.set(f"当前: {macros[0].name}")
             return
-            macro = self.repo.create_macro("欢迎上手", "3.2 默认示例脚本")
+        macro = self.repo.create_macro("欢迎上手", f"{APP_VERSION} 默认示例脚本")
         demo_events = [
             {"type": "note", "text": "这是一个示例脚本，帮助你理解步骤结构。", "time": 0.0},
             {"type": "wait", "duration": 1.0, "time": 0.3},
-            {"type": "text", "text": "你好，我是塔菲键鼠 3.2", "time": 1.6},
+            {"type": "text", "text": f"你好，我是{APP_DISPLAY_NAME}", "time": 1.6},
         ]
         self.repo.save_events(macro.id, demo_events)
         self.current_macro = self.db.get_macro(macro.id)
@@ -811,7 +908,7 @@ class Taffi3App:
         def cancel() -> None:
             dlg.destroy()
 
-        self.small_button(actions, "取消", cancel, "#64748b").pack(side="right")
+        self.small_button(actions, "取消", cancel, self.colors["slate"]).pack(side="right")
         self.small_button(actions, "确定", confirm, self.colors["blue"]).pack(side="right", padx=(0, 8))
         dlg.bind("<Return>", lambda _event: confirm())
         dlg.bind("<Escape>", lambda _event: cancel())
@@ -1426,9 +1523,9 @@ class Taffi3App:
         for row, (key, value) in enumerate(event.items()):
             tk.Label(form, text=key, bg=self.colors["bg"], fg=self.colors["muted"]).grid(row=row, column=0, sticky="w", pady=4)
             var = tk.StringVar(value=str(value))
-            entry = tk.Entry(form, textvariable=var, relief="solid", bd=1)
+            entry = tk.Entry(form, textvariable=var, bg=self.colors["input"], fg=self.colors["ink"], insertbackground=self.colors["ink"], relief="solid", bd=1)
             if key in readonly_keys:
-                entry.configure(state="readonly", readonlybackground="#f1f5f9")
+                entry.configure(state="readonly", readonlybackground=self.colors["soft"])
             entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
             vars_[key] = var
         form.grid_columnconfigure(1, weight=1)
@@ -1535,14 +1632,14 @@ class Taffi3App:
 
     def apply_activity_state(self) -> None:
         data = {
-            STATE_IDLE: ("#eef4ff", "#c7d7fe", self.colors["blue"], "●", "准备就绪", "选择脚本后，点击“开始录制”或“开始回放”。"),
-            STATE_RECORDING: ("#fff1f2", "#fecdd3", self.colors["red"], "●", "正在录制键鼠动作", "请切到目标窗口操作。完成后回到塔菲键鼠，点击“停止录制”。"),
-            STATE_PLAYING: ("#ecfdf3", "#bbf7d0", self.colors["green"], "▶", "正在回放脚本", "请不要移动目标窗口。需要中断时点击“停止回放”或使用急停。"),
-            STATE_PAUSED: ("#fffbeb", "#fde68a", "#9a6700", "Ⅱ", "回放已暂停", "点击“继续”恢复，或点击“停止回放”结束。"),
+            STATE_IDLE: (self.colors["state_idle_bg"], self.colors["state_idle_line"], self.colors["blue"], "●", "准备就绪", "选择脚本后，点击“开始录制”或“开始回放”。"),
+            STATE_RECORDING: (self.colors["state_recording_bg"], self.colors["state_recording_line"], self.colors["red"], "●", "正在录制键鼠动作", "请切到目标窗口操作。完成后回到塔菲键鼠，点击“停止录制”。"),
+            STATE_PLAYING: (self.colors["state_playing_bg"], self.colors["state_playing_line"], self.colors["green"], "▶", "正在回放脚本", "请不要移动目标窗口。需要中断时点击“停止回放”或使用急停。"),
+            STATE_PAUSED: (self.colors["state_paused_bg"], self.colors["state_paused_line"], self.colors["state_paused_fg"], "Ⅱ", "回放已暂停", "点击“继续”恢复，或点击“停止回放”结束。"),
         }[self.state]
         bg, line, accent, icon, title, hint = data
         if self.state in (STATE_RECORDING, STATE_PLAYING) and self.pulse_on:
-            bg = "#ffffff"
+            bg = self.colors["panel"]
         self.status_panel.configure(bg=bg, highlightbackground=line)
         for widget in (self.status_icon, self.status_hint, self.timer_label):
             widget.configure(bg=bg)
@@ -1569,13 +1666,13 @@ class Taffi3App:
         self.button_state(self.btn_save, has_macro and self.state == STATE_IDLE)
         self.button_state(self.btn_check, has_macro and self.state == STATE_IDLE)
         if self.state == STATE_RECORDING:
-            self.btn_record.configure(bg="#fff1f2", fg=self.colors["red"], disabledforeground=self.colors["red"])
+            self.btn_record.configure(bg=self.colors["state_recording_bg"], fg=self.colors["red"], disabledforeground=self.colors["red"])
             self.btn_stop.configure(bg=self.colors["red"], fg="white")
         elif self.state == STATE_PLAYING:
-            self.btn_play.configure(bg="#ecfdf3", fg=self.colors["green"], disabledforeground=self.colors["green"])
+            self.btn_play.configure(bg=self.colors["state_playing_bg"], fg=self.colors["green"], disabledforeground=self.colors["green"])
             self.btn_stop.configure(bg=self.colors["red"], fg="white")
         elif self.state == STATE_PAUSED:
-            self.btn_pause.configure(bg="#fffbeb", fg="#9a6700")
+            self.btn_pause.configure(bg=self.colors["state_paused_bg"], fg=self.colors["state_paused_fg"])
 
     def button_state(self, button: tk.Button, enabled: bool) -> None:
         if enabled:
@@ -1583,7 +1680,7 @@ class Taffi3App:
             fg = getattr(button, "_taffi_fg", "white")
             button.configure(state="normal", cursor="hand2", bg=bg, fg=fg, activebackground=bg, activeforeground=fg, disabledforeground=fg)
         else:
-            button.configure(state="disabled", cursor="arrow", bg=self.colors["disabled"], fg="#f8fafc", activebackground=self.colors["disabled"], activeforeground="#f8fafc", disabledforeground="#f8fafc")
+            button.configure(state="disabled", cursor="arrow", bg=self.colors["disabled"], fg=self.colors["disabled_fg"], activebackground=self.colors["disabled"], activeforeground=self.colors["disabled_fg"], disabledforeground=self.colors["disabled_fg"])
 
     def message(self, text: str) -> None:
         self.message_var.set(text)
